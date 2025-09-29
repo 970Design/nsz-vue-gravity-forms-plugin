@@ -195,11 +195,6 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 				$params         = $request->get_params();
 				$uploaded_files = $request->get_file_params();
 
-				// Debug logging
-				error_log( 'GF Headless: Form ID: ' . $form_id );
-				error_log( 'GF Headless: Params: ' . print_r( $params, true ) );
-				error_log( 'GF Headless: Files: ' . print_r( $uploaded_files, true ) );
-
 				// Process form fields (Gravity Forms stores fields as objects in $form['fields'])
 				if ( isset( $form['fields'] ) && is_array( $form['fields'] ) ) {
 					foreach ( $form['fields'] as $field ) {
@@ -270,14 +265,12 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 									if ( isset( $uploaded_files[ $field_key ]['name'] ) && is_array( $uploaded_files[ $field_key ]['name'] ) ) {
 										// Already in standard PHP multi-file format
 										$files[ $field_id ] = $uploaded_files[ $field_key ];
-										error_log( 'GF Headless: Multi-file detected for field ' . $field_id . ': ' . count( $uploaded_files[ $field_key ]['name'] ) . ' files' );
 									}
 								}
 							} else {
 								// Single file upload
 								if ( isset( $uploaded_files[ $field_key ] ) ) {
 									$files[ $field_id ] = $uploaded_files[ $field_key ];
-									error_log( 'GF Headless: Single file detected for field ' . $field_id );
 								}
 							}
 						} else {
@@ -298,15 +291,12 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 
 				// Handle file uploads and replace with saved file URLs
 				if ( ! empty( $files ) ) {
-					error_log( 'GF Headless: Processing ' . count( $files ) . ' file upload fields' );
 					foreach ( $files as $field_id => $file_data ) {
 						// Check if this is a multi-file upload (array of files)
 						if ( is_array( $file_data ) && isset( $file_data['name'] ) && is_array( $file_data['name'] ) ) {
 							// Multiple files
 							$uploaded_files_json = [];
 							$file_count = count( $file_data['name'] );
-
-							error_log( 'GF Headless: Processing ' . $file_count . ' files for field ' . $field_id );
 
 							for ( $i = 0; $i < $file_count; $i++ ) {
 								// Reconstruct individual file array
@@ -322,9 +312,7 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 									$upload_result = $this->handle_file_upload( $individual_file, $form_id, $field_id );
 									if ( ! is_wp_error( $upload_result ) ) {
 										$uploaded_files_json[] = $upload_result['url']; // GF stores URLs in JSON array for multi-file
-										error_log( 'GF Headless: File ' . ($i + 1) . ' uploaded: ' . $upload_result['file'] );
 									} else {
-										error_log( 'GF Headless: File upload failed: ' . $upload_result->get_error_message() );
 										return $upload_result;
 									}
 								}
@@ -335,14 +323,11 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 
 						} else {
 							// Single file upload
-							error_log( 'GF Headless: Uploading single file for field ' . $field_id . ': ' . $file_data['name'] );
 							$upload_result = $this->handle_file_upload( $file_data, $form_id, $field_id );
 							if ( ! is_wp_error( $upload_result ) ) {
 								// For single file, store the relative path
 								$entry_data[ $field_id ] = $upload_result['file'];
-								error_log( 'GF Headless: File uploaded successfully: ' . $upload_result['file'] );
 							} else {
-								error_log( 'GF Headless: File upload failed: ' . $upload_result->get_error_message() );
 								return $upload_result;
 							}
 						}
@@ -364,9 +349,6 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 				foreach ( $entry_data as $field_id => $field_value ) {
 					$entry[ $field_id ] = $field_value;
 				}
-
-				// Debug logging
-				error_log( 'GF Headless: Entry data before submission: ' . print_r( $entry, true ) );
 
 				// Validate the form using GFAPI::validate_form (returns array with is_valid and messages)
 				$validation_result = [];
