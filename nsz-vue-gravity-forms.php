@@ -255,10 +255,30 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 								$entry_data[ $field_id . '.2' ] = $params[ $consent_key_2 ];
 							}
 						} elseif ( $field_type === 'fileupload' ) {
-							// File upload fields
+							// File upload fields - can be single or multiple
 							$field_key = "input_{$field_id}";
-							if ( isset( $uploaded_files[ $field_key ] ) ) {
-								$files[ $field_id ] = $uploaded_files[ $field_key ];
+
+							// Check if this is a multi-file upload field
+							$is_multi = is_object( $field ) ?
+								( isset( $field->multipleFiles ) ? $field->multipleFiles : false ) :
+								( isset( $field['multipleFiles'] ) ? $field['multipleFiles'] : false );
+
+							if ( $is_multi ) {
+								// Handle multiple files - PHP converts input_X[0], input_X[1] into nested array format
+								if ( isset( $uploaded_files[ $field_key ] ) ) {
+									// Check if it's already in multi-file format (array of arrays)
+									if ( isset( $uploaded_files[ $field_key ]['name'] ) && is_array( $uploaded_files[ $field_key ]['name'] ) ) {
+										// Already in standard PHP multi-file format
+										$files[ $field_id ] = $uploaded_files[ $field_key ];
+										error_log( 'GF Headless: Multi-file detected for field ' . $field_id . ': ' . count( $uploaded_files[ $field_key ]['name'] ) . ' files' );
+									}
+								}
+							} else {
+								// Single file upload
+								if ( isset( $uploaded_files[ $field_key ] ) ) {
+									$files[ $field_id ] = $uploaded_files[ $field_key ];
+									error_log( 'GF Headless: Single file detected for field ' . $field_id );
+								}
 							}
 						} else {
 							// Simple fields (text, textarea, select, radio, etc.)
@@ -278,18 +298,53 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 
 				// Handle file uploads and replace with saved file URLs
 				if ( ! empty( $files ) ) {
-					error_log( 'GF Headless: Processing ' . count( $files ) . ' file uploads' );
-					foreach ( $files as $field_id => $file ) {
-						error_log( 'GF Headless: Uploading file for field ' . $field_id . ': ' . $file['name'] );
-						$upload_result = $this->handle_file_upload( $file, $form_id, $field_id );
-						if ( ! is_wp_error( $upload_result ) ) {
-							// For Gravity Forms, store the file path (not URL) in the entry
-							$entry_data[ $field_id ] = $upload_result['file'];
-							error_log( 'GF Headless: File uploaded successfully: ' . $upload_result['file'] );
+					error_log( 'GF Headless: Processing ' . count( $files ) . ' file upload fields' );
+					foreach ( $files as $field_id => $file_data ) {
+						// Check if this is a multi-file upload (array of files)
+						if ( is_array( $file_data ) && isset( $file_data['name'] ) && is_array( $file_data['name'] ) ) {
+							// Multiple files
+							$uploaded_files_json = [];
+							$file_count = count( $file_data['name'] );
+
+							error_log( 'GF Headless: Processing ' . $file_count . ' files for field ' . $field_id );
+
+							for ( $i = 0; $i < $file_count; $i++ ) {
+								// Reconstruct individual file array
+								$individual_file = [
+									'name'     => $file_data['name'][$i],
+									'type'     => $file_data['type'][$i],
+									'tmp_name' => $file_data['tmp_name'][$i],
+									'error'    => $file_data['error'][$i],
+									'size'     => $file_data['size'][$i],
+								];
+
+								if ( $individual_file['error'] === 0 ) {
+									$upload_result = $this->handle_file_upload( $individual_file, $form_id, $field_id );
+									if ( ! is_wp_error( $upload_result ) ) {
+										$uploaded_files_json[] = $upload_result['url']; // GF stores URLs in JSON array for multi-file
+										error_log( 'GF Headless: File ' . ($i + 1) . ' uploaded: ' . $upload_result['file'] );
+									} else {
+										error_log( 'GF Headless: File upload failed: ' . $upload_result->get_error_message() );
+										return $upload_result;
+									}
+								}
+							}
+
+							// Store as JSON array for Gravity Forms multi-file field
+							$entry_data[ $field_id ] = wp_json_encode( $uploaded_files_json );
+
 						} else {
-							error_log( 'GF Headless: File upload failed: ' . $upload_result->get_error_message() );
-							// return upload error
-							return $upload_result;
+							// Single file upload
+							error_log( 'GF Headless: Uploading single file for field ' . $field_id . ': ' . $file_data['name'] );
+							$upload_result = $this->handle_file_upload( $file_data, $form_id, $field_id );
+							if ( ! is_wp_error( $upload_result ) ) {
+								// For single file, store the relative path
+								$entry_data[ $field_id ] = $upload_result['file'];
+								error_log( 'GF Headless: File uploaded successfully: ' . $upload_result['file'] );
+							} else {
+								error_log( 'GF Headless: File upload failed: ' . $upload_result->get_error_message() );
+								return $upload_result;
+							}
 						}
 					}
 				}
@@ -459,11 +514,11 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 			// Use wp_handle_upload but override the upload directory
 			add_filter( 'upload_dir', function( $upload ) use ( $target_root, $target_url_root ) {
 				return [
-					'path'    => rtrim( $target_root, '/' ),
-					'url'     => rtrim( $target_url_root, '/' ),
+					'path'    => $target_root,
+					'url'     => $target_url_root,
 					'subdir'  => '',
-					'basedir' => rtrim( $target_root, '/' ),
-					'baseurl' => rtrim( $target_url_root, '/' ),
+					'basedir' => $target_root,
+					'baseurl' => $target_url_root,
 					'error'   => false,
 				];
 			}, 999 );
