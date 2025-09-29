@@ -1,12 +1,8 @@
-# 970 Design Vue Gravity Forms (Headless)
+# What is the Vue Gravity Forms Plugin?
 
-Secure proxy endpoints for headless Gravity Forms integration with Vue.js.
+This is a WordPress plugin that provides secure proxy endpoints for headless Gravity Forms integration; and can be used in conjunction with the companion [Vue Gravity Forms](https://www.npmjs.com/package/@970design/vue-gravity-forms) package to render and process Gravity Forms in a headless WordPress environment.
 
-## Description
-
-970 Design Vue Gravity Forms (Headless) provides secure REST API endpoints for using Gravity Forms in a headless WordPress environment. Perfect for decoupled architectures using Vue.js, Astro.js, or other JavaScript frameworks that can take advantage of Vue components.
-
-### Features
+## Features
 
 - Secure API key authentication
 - RESTful endpoints for form schema retrieval and submission
@@ -37,20 +33,7 @@ Secure proxy endpoints for headless Gravity Forms integration with Vue.js.
 
 ### Frontend Setup (Vue.js/Astro.js)
 
-1. Install the required dependencies:
-```bash
-npm install vue recaptcha-v3
-```
-
-2. Import and use the VueGravityForms component:
-```javascript
-<VueGravityForms
-  endpoint="https://your-wordpress-site.com"
-  :form-id="1"
-  api-key="your-api-key-here"
-  recaptcha-key="your-recaptcha-key-optional"
-/>
-```
+See the companion [Vue Gravity Forms](https://www.npmjs.com/package/@970design/vue-gravity-forms) package for instructions on how to set up the frontend component.
 
 ## API Endpoints
 
