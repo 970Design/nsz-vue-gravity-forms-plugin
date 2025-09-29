@@ -26,6 +26,10 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 			add_action( 'rest_api_init', [ $this, 'register_rest_cors' ] );
 			add_action( 'admin_menu', [ $this, 'add_admin_menu' ] );
 			add_action( 'admin_init', [ $this, 'register_settings' ] );
+
+			// Enable SVG uploads for headless forms
+			add_filter( 'upload_mimes', [ $this, 'add_svg_mime_type' ] );
+			add_filter( 'wp_check_filetype_and_ext', [ $this, 'fix_svg_mime_type' ], 10, 4 );
 		}
 
 		/**
@@ -272,14 +276,18 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 					}
 				}
 
-				// Handle file uploads and replace with saved file URLs (or file path if desired)
+				// Handle file uploads and replace with saved file URLs
 				if ( ! empty( $files ) ) {
+					error_log( 'GF Headless: Processing ' . count( $files ) . ' file uploads' );
 					foreach ( $files as $field_id => $file ) {
+						error_log( 'GF Headless: Uploading file for field ' . $field_id . ': ' . $file['name'] );
 						$upload_result = $this->handle_file_upload( $file, $form_id, $field_id );
 						if ( ! is_wp_error( $upload_result ) ) {
-							// store URL (you can store path if you prefer)
-							$entry_data[ $field_id ] = $upload_result;
+							// For Gravity Forms, store the file path (not URL) in the entry
+							$entry_data[ $field_id ] = $upload_result['file'];
+							error_log( 'GF Headless: File uploaded successfully: ' . $upload_result['file'] );
 						} else {
+							error_log( 'GF Headless: File upload failed: ' . $upload_result->get_error_message() );
 							// return upload error
 							return $upload_result;
 						}
@@ -377,31 +385,168 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 		}
 
 		/**
-		 * Handle file upload
+		 * Handle file upload - properly integrate with Gravity Forms file system
 		 *
 		 * @param array  $file
 		 * @param int    $form_id
 		 * @param string $field_id
-		 * @return string|WP_Error URL of uploaded file or WP_Error
+		 * @return array|WP_Error Array with file info or WP_Error
 		 */
 		private function handle_file_upload( $file, $form_id, $field_id ) {
 			if ( ! function_exists( 'wp_handle_upload' ) ) {
 				require_once ABSPATH . 'wp-admin/includes/file.php';
 			}
 
+			// Get the field to check allowed file types
+			$form = GFAPI::get_form( $form_id );
+			$gf_field = null;
+
+			if ( $form && isset( $form['fields'] ) ) {
+				foreach ( $form['fields'] as $field_obj ) {
+					$current_field_id = is_object( $field_obj ) ? $field_obj->id : $field_obj['id'];
+					if ( $current_field_id == $field_id ) {
+						$gf_field = $field_obj;
+						break;
+					}
+				}
+			}
+
+			// Set up allowed file types based on field settings
+			$allowed_extensions = [];
+			if ( $gf_field ) {
+				$allowed_extensions_setting = is_object( $gf_field ) ?
+					( isset( $gf_field->allowedExtensions ) ? $gf_field->allowedExtensions : '' ) :
+					( isset( $gf_field['allowedExtensions'] ) ? $gf_field['allowedExtensions'] : '' );
+
+				if ( ! empty( $allowed_extensions_setting ) ) {
+					$allowed_extensions = array_map( 'trim', explode( ',', $allowed_extensions_setting ) );
+				}
+			}
+
+			// Validate file extension if field has restrictions
+			if ( ! empty( $allowed_extensions ) ) {
+				$file_extension = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
+				if ( ! in_array( $file_extension, $allowed_extensions ) ) {
+					return new WP_Error( 'invalid_file_type', 'File type not allowed.' );
+				}
+			}
+
+			// Create Gravity Forms uploads directory if it doesn't exist
+			$gf_upload_root = rtrim( GFFormsModel::get_upload_root(), '/' );
+			$gf_upload_url_root = rtrim( GFFormsModel::get_upload_url_root(), '/' );
+
+			// Create form-specific directory
+			$target_root = $gf_upload_root . "/form_{$form_id}";
+			$target_url_root = $gf_upload_url_root . "/form_{$form_id}";
+
+			if ( ! wp_mkdir_p( $target_root ) ) {
+				return new WP_Error( 'upload_dir_error', 'Could not create upload directory.' );
+			}
+
+			// Generate unique filename to prevent conflicts
+			$original_name = sanitize_file_name( $file['name'] );
+			$name_parts = pathinfo( $original_name );
+			$unique_filename = wp_unique_filename( $target_root, $original_name );
+			$target_path = $target_root . $unique_filename;
+			$target_url = $target_url_root . $unique_filename;
+
+			// Validate and move uploaded file
 			$upload_overrides = [
 				'test_form' => false,
-				'mimes'     => get_allowed_mime_types(),
+				'mimes'     => $this->get_allowed_mime_types_for_upload(),
 			];
 
+			// Use wp_handle_upload but override the upload directory
+			add_filter( 'upload_dir', function( $upload ) use ( $target_root, $target_url_root ) {
+				return [
+					'path'    => rtrim( $target_root, '/' ),
+					'url'     => rtrim( $target_url_root, '/' ),
+					'subdir'  => '',
+					'basedir' => rtrim( $target_root, '/' ),
+					'baseurl' => rtrim( $target_url_root, '/' ),
+					'error'   => false,
+				];
+			}, 999 );
+
 			$uploaded_file = wp_handle_upload( $file, $upload_overrides );
+
+			// Remove the filter
+			remove_all_filters( 'upload_dir', 999 );
 
 			if ( isset( $uploaded_file['error'] ) ) {
 				return new WP_Error( 'upload_failed', $uploaded_file['error'] );
 			}
 
-			// Return the public URL to be stored in entry. You may prefer to store path instead.
-			return $uploaded_file['url'];
+			// Return the file path (relative to wp-content) for Gravity Forms storage
+			// Gravity Forms expects the file path relative to the uploads directory
+			$relative_path = str_replace( WP_CONTENT_DIR . '/uploads/', '', $uploaded_file['file'] );
+
+			// Remove any double slashes that might have been introduced
+			$relative_path = preg_replace('#/+#', '/', $relative_path);
+
+			return [
+				'file' => $relative_path, // This is what gets stored in the entry
+				'url'  => $uploaded_file['url'],
+				'type' => $uploaded_file['type'],
+			];
+		}
+
+		/**
+		 * Add SVG to allowed MIME types
+		 *
+		 * @param array $mimes
+		 * @return array
+		 */
+		public function add_svg_mime_type( $mimes ) {
+			$mimes['svg'] = 'image/svg+xml';
+			$mimes['svgz'] = 'image/svg+xml';
+			return $mimes;
+		}
+
+		/**
+		 * Fix SVG MIME type detection
+		 *
+		 * @param array  $data
+		 * @param string $file
+		 * @param string $filename
+		 * @param array  $mimes
+		 * @return array
+		 */
+		public function fix_svg_mime_type( $data, $file, $filename, $mimes ) {
+			$ext = isset( $data['ext'] ) ? $data['ext'] : '';
+
+			if ( ! $ext ) {
+				$ext = strtolower( pathinfo( $filename, PATHINFO_EXTENSION ) );
+			}
+
+			if ( $ext === 'svg' ) {
+				$data['type'] = 'image/svg+xml';
+				$data['ext']  = 'svg';
+			} elseif ( $ext === 'svgz' ) {
+				$data['type'] = 'image/svg+xml';
+				$data['ext']  = 'svgz';
+			}
+
+			return $data;
+		}
+
+		/**
+		 * Get allowed MIME types for file uploads (includes SVG support)
+		 *
+		 * @return array
+		 */
+		private function get_allowed_mime_types_for_upload() {
+			$mimes = get_allowed_mime_types();
+
+			// Add SVG support if not already present
+			if ( ! isset( $mimes['svg'] ) ) {
+				$mimes['svg'] = 'image/svg+xml';
+			}
+			if ( ! isset( $mimes['svgz'] ) ) {
+				$mimes['svgz'] = 'image/svg+xml';
+			}
+
+			return $mimes;
 		}
 
 		/**
