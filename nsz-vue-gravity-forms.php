@@ -30,6 +30,9 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 			// Enable SVG uploads for headless forms
 			add_filter( 'upload_mimes', [ $this, 'add_svg_mime_type' ] );
 			add_filter( 'wp_check_filetype_and_ext', [ $this, 'fix_svg_mime_type' ], 10, 4 );
+
+			// Add settings link on plugins page
+			add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), [ $this, 'add_plugin_action_links' ] );
 		}
 
 		/**
@@ -753,6 +756,25 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 				<p><strong>Note:</strong> All endpoints require a valid API key via the <code>X-API-Key</code> header or <code>api_key</code> parameter.</p>
 			</div>
 			<?php
+		}
+
+		/**
+		 * Add settings link on plugin page
+		 *
+		 * @param array $links Existing plugin action links
+		 * @return array Modified plugin action links
+		 */
+		public function add_plugin_action_links( $links ) {
+			$settings_link = sprintf(
+				'<a href="%s">%s</a>',
+				esc_url( admin_url( 'options-general.php?page=gf-headless-settings' ) ),
+				esc_html__( 'Settings', 'nsz-vue-gravity-forms' )
+			);
+
+			// Add settings link at the beginning of the links array
+			array_unshift( $links, $settings_link );
+
+			return $links;
 		}
 	}
 }
