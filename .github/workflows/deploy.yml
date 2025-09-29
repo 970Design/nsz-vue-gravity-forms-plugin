@@ -1,0 +1,23 @@
+name: deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Deploy
+        uses: milanmk/actions-file-deployer@master
+        with:
+          remote-host: ${{ secrets.SSH_HOST }}
+          remote-user: ${{ secrets.SSH_USER }}
+          remote-password: ${{ secrets.SSH_PASS }}
+          remote-path: "/public_html/wp-content/plugins/nsz-vue-gravity-forms-plugin"
+          sync-delta-excludes: "README.md .github/** .git/**"

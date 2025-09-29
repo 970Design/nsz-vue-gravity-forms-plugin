@@ -8,11 +8,11 @@ Stable tag: 1.0
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
 
-Secure proxy endpoints for headless Gravity Forms integration with Vue.js and Astro.js frontends.
+Secure proxy endpoints for headless Gravity Forms integration with Vue.js.
 
 == Description ==
 
-970 Design Vue Gravity Forms (Headless) provides secure REST API endpoints for using Gravity Forms in a headless WordPress environment. Perfect for decoupled architectures using Vue.js, Astro.js, or other JavaScript frameworks.
+970 Design Vue Gravity Forms (Headless) provides secure REST API endpoints for using Gravity Forms in a headless WordPress environment. Perfect for decoupled architectures using Vue.js, Astro.js, or other JavaScript framework that can support Vue components.
 
 **Features:**
 
@@ -103,6 +103,8 @@ Use `*` to allow all origins (not recommended for production).
 
 **CORS Settings**
 The plugin automatically handles CORS headers based on your allowed origins configuration. Credentials are enabled by default for authenticated requests.
+
+NOTE: CORS must also be configured at your host to allow requests from your frontend domain in addition to this plugin's settings.
 
 == Frequently Asked Questions ==
 
