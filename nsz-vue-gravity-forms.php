@@ -2,7 +2,7 @@
 /**
  *  Plugin Name: 970 Design Vue Gravity Forms (Headless)
  *  Description: Secure proxy endpoints for headless Gravity Forms integration.
- *  Version:     1.0
+ *  Version:     1.0.1
  *  Author:      970 Design
  *  Author URI:  https://970design.com/
  *  License:     GPLv2 or later
@@ -236,8 +236,23 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 								}
 							}
 							if ( ! empty( $address_data ) ) {
-								// Merge into entry data with proper keys
+								// Merge into entry data with proper keys (using period separator)
 								foreach ( $address_data as $sub_field => $value ) {
+									$entry_data[ $field_id . '.' . $sub_field ] = $value;
+								}
+							}
+						} elseif ( $field_type === 'name' ) {
+							// Name fields: look for input_X_Y pattern where Y is the name component
+							// Y can be: 2 (prefix), 3 (first), 4 (middle), 6 (last), 8 (suffix)
+							$name_data = [];
+							foreach ( $params as $param_key => $param_value ) {
+								if ( preg_match( "/^input_{$field_id}_(\d+)$/", $param_key, $matches ) && ! empty( $param_value ) ) {
+									$name_data[ $matches[1] ] = $param_value;
+								}
+							}
+							if ( ! empty( $name_data ) ) {
+								// Merge into entry data with proper keys (using period separator)
+								foreach ( $name_data as $sub_field => $value ) {
 									$entry_data[ $field_id . '.' . $sub_field ] = $value;
 								}
 							}
