@@ -2,7 +2,7 @@
 /**
  *  Plugin Name: 970 Design Vue Gravity Forms (Headless)
  *  Description: Secure proxy endpoints for headless Gravity Forms integration.
- *  Version:     1.0.1
+ *  Version:     1.1.0
  *  Author:      970 Design
  *  Author URI:  https://970design.com/
  *  License:     GPLv2 or later
@@ -802,3 +802,15 @@ add_action( 'plugins_loaded', function () {
 
 // Activation hook: use class static method
 register_activation_hook( __FILE__, [ 'GF_Headless_API', 'activate' ] );
+
+require 'plugin-update-checker/plugin-update-checker.php';
+use YahnisElsts\PluginUpdateChecker\v5\PucFactory;
+
+$myUpdateChecker = PucFactory::buildUpdateChecker(
+        'https://github.com/970Design/nsz-vue-gravity-forms-plugin',
+        __FILE__,
+        'nsz-vue-gravity-forms-plugin'
+);
+
+//Set the branch that contains the stable release.
+$myUpdateChecker->setBranch('main');
