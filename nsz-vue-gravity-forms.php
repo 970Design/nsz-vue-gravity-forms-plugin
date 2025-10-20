@@ -1,8 +1,8 @@
 <?php
 /**
- *  Plugin Name: 970 Design Vue Gravity Forms (Headless)
+ *  Plugin Name: 970 Design Vue Gravity Forms
  *  Description: Secure proxy endpoints for headless Gravity Forms integration.
- *  Version:     1.1.0
+ *  Version:     1.1.1
  *  Author:      970 Design
  *  Author URI:  https://970design.com/
  *  License:     GPLv2 or later
