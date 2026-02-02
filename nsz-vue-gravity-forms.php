@@ -2,7 +2,7 @@
 /**
  *  Plugin Name: 970 Design Vue Gravity Forms
  *  Description: Secure proxy endpoints for headless Gravity Forms integration.
- *  Version:     1.2.0
+ *  Version:     1.2.1
  *  Author:      970 Design
  *  Author URI:  https://970design.com/
  *  License:     GPLv2 or later
@@ -161,6 +161,8 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 			if ( $cached_form !== false ) {
 				return rest_ensure_response( $cached_form );
 			}
+
+			$form = $this->decode_html_entities_recursive( $form );
 
 			wp_cache_set( $cache_key, $form, '', 300 );
 
@@ -605,6 +607,32 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 		}
 
 		/**
+		 * Recursively decode HTML entities in form schema
+		 *
+		 * @param mixed $data Form data (array, object, or string)
+		 * @return mixed Decoded data
+		 */
+		private function decode_html_entities_recursive( $data ) {
+			if ( is_string( $data ) ) {
+				return html_entity_decode( $data, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+			}
+
+			if ( is_array( $data ) ) {
+				return array_map( [ $this, 'decode_html_entities_recursive' ], $data );
+			}
+
+			if ( is_object( $data ) ) {
+				$decoded = clone $data;
+				foreach ( $decoded as $key => $value ) {
+					$decoded->$key = $this->decode_html_entities_recursive( $value );
+				}
+				return $decoded;
+			}
+
+			return $data;
+		}
+
+		/**
 		 * Get client IP address
 		 *
 		 * @return string
@@ -802,4 +830,3 @@ add_action( 'plugins_loaded', function () {
 
 // Activation hook: use class static method
 register_activation_hook( __FILE__, [ 'GF_Headless_API', 'activate' ] );
-
