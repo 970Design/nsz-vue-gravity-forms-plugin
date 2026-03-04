@@ -2,7 +2,7 @@
 /**
  *  Plugin Name: 970 Design Vue Gravity Forms
  *  Description: Secure proxy endpoints for headless Gravity Forms integration.
- *  Version:     1.2.1
+ *  Version:     1.2.2
  *  Author:      970 Design
  *  Author URI:  https://970design.com/
  *  License:     GPLv2 or later
@@ -395,19 +395,14 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 
 				// Send notifications with proper error handling
 				try {
-					if ( class_exists( 'GFCommon' ) && method_exists( 'GFCommon', 'send_notifications' ) ) {
-						// GFCommon::send_notifications requires 3+ parameters in newer GF versions
-						$reflection = new ReflectionMethod( 'GFCommon', 'send_notifications' );
-						$param_count = $reflection->getNumberOfRequiredParameters();
+					if ( isset( $form['notifications'] ) && ! empty( $form['notifications'] ) && class_exists( 'GFCommon' ) ) {
+						$notifications_to_send = GFCommon::get_notifications_to_send( 'form_submission', $form, $entry );
 
-						if ( $param_count >= 3 ) {
-							GFCommon::send_notifications( $form, $entry, 'form_submission' );
-						} else {
-							// Fallback for older GF versions (shouldn't happen with modern GF)
-							GFCommon::send_notifications( $form, $entry );
+						if ( ! empty( $notifications_to_send ) ) {
+							foreach ( $notifications_to_send as $notification ) {
+								GFCommon::send_notification( $notification, $form, $entry );
+							}
 						}
-					} elseif ( method_exists( 'GFAPI', 'send_notifications' ) ) {
-						GFAPI::send_notifications( $form, $entry, 'form_submission' );
 					}
 				} catch ( Exception $notification_error ) {
 					// Log notification errors but don't fail the submission
