@@ -15,11 +15,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-// reCAPTCHA v3 minimum score threshold (0.0 = bot, 1.0 = human)
-if ( ! defined( 'GF_HEADLESS_RECAPTCHA_THRESHOLD' ) ) {
-	define( 'GF_HEADLESS_RECAPTCHA_THRESHOLD', 0.5 );
-}
-
 if ( ! class_exists( 'GF_Headless_API' ) ) {
 
 	class GF_Headless_API {
@@ -65,6 +60,10 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 
 			if ( get_option( 'gf_headless_recaptcha_secret_key' ) === false ) {
 				update_option( 'gf_headless_recaptcha_secret_key', '' );
+			}
+
+			if ( get_option( 'gf_headless_recaptcha_threshold' ) === false ) {
+				update_option( 'gf_headless_recaptcha_threshold', '0.5' );
 			}
 		}
 
@@ -172,6 +171,17 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 		}
 
 		/**
+		 * Get reCAPTCHA v3 score threshold from settings.
+		 * Falls back to 0.5 if the stored value is missing or out of the valid 0.0–1.0 range.
+		 *
+		 * @return float
+		 */
+		private function get_recaptcha_threshold() {
+			$threshold = (float) get_option( 'gf_headless_recaptcha_threshold', 0.5 );
+			return ( $threshold >= 0.0 && $threshold <= 1.0 ) ? $threshold : 0.5;
+		}
+
+		/**
 		 * Verify reCAPTCHA v3 token against Google's siteverify API.
 		 * Returns WP_Error if verification fails or score is below threshold.
 		 *
@@ -214,7 +224,7 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 
 			$score = isset( $body['score'] ) ? (float) $body['score'] : 0.0;
 
-			if ( $score < GF_HEADLESS_RECAPTCHA_THRESHOLD ) {
+			if ( $score < $this->get_recaptcha_threshold() ) {
 				return new WP_Error(
 					'recaptcha_score_too_low',
 					'reCAPTCHA score too low. Possible bot activity detected.',
@@ -881,6 +891,13 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 			register_setting( 'gf_headless_settings', 'gf_headless_recaptcha_secret_key', [
 				'sanitize_callback' => 'sanitize_text_field',
 			] );
+
+			register_setting( 'gf_headless_settings', 'gf_headless_recaptcha_threshold', [
+				'sanitize_callback' => function ( $val ) {
+					$val = (float) $val;
+					return ( $val >= 0.0 && $val <= 1.0 ) ? (string) $val : '0.5';
+				},
+			] );
 		}
 
 		/**
@@ -902,7 +919,7 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 					</div>
 				<?php elseif ( $recaptcha_enabled === '1' ) : ?>
 					<div class="notice notice-success">
-						<p><strong>reCAPTCHA v3 is active.</strong> All form submissions require a valid token with a score of <?php echo esc_html( GF_HEADLESS_RECAPTCHA_THRESHOLD ); ?> or higher.</p>
+						<p><strong>reCAPTCHA v3 is active.</strong> All form submissions require a valid token with a score of <?php echo esc_html( $this->get_recaptcha_threshold() ); ?> or higher.</p>
 					</div>
 				<?php endif; ?>
 
@@ -951,6 +968,22 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 								<p class="description">Your reCAPTCHA v3 secret key (private — never expose this to the frontend).</p>
 							</td>
 						</tr>
+						<tr>
+							<th scope="row">Score Threshold</th>
+							<td>
+								<input
+										type="number"
+										name="gf_headless_recaptcha_threshold"
+										value="<?php echo esc_attr( get_option( 'gf_headless_recaptcha_threshold', '0.5' ) ); ?>"
+										class="small-text"
+										min="0"
+										max="1"
+										step="0.1"
+								>
+								<p class="description">Minimum reCAPTCHA v3 score to accept. Default: 0.5.<br>
+									(0.0 = all traffic (including bots), 1.0 = humans only).</p>
+							</td>
+						</tr>
 					</table>
 
 					<?php submit_button(); ?>
@@ -961,14 +994,6 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 				<p><strong>Submit Form:</strong> <code>POST /wp-json/gf-headless/v1/forms/{form_id}/submit</code></p>
 				<p><strong>Get reCAPTCHA Config:</strong> <code>GET /wp-json/gf-headless/v1/recaptcha/config</code></p>
 				<p><strong>Note:</strong> All endpoints require a valid API key via the <code>X-API-Key</code> header or <code>api_key</code> parameter.</p>
-
-				<h3>reCAPTCHA v3 Integration Notes</h3>
-				<ul>
-					<li>The frontend must load the reCAPTCHA v3 script and generate a token before submitting.</li>
-					<li>Pass the token as <code>recaptcha_token</code> in the POST body.</li>
-					<li>The server verifies the token against Google's <code>siteverify</code> API and rejects submissions with a score below <strong><?php echo esc_html( GF_HEADLESS_RECAPTCHA_THRESHOLD ); ?></strong>.</li>
-					<li>Use <code>GET /wp-json/gf-headless/v1/recaptcha/config</code> to retrieve the site key and enabled state dynamically from the frontend.</li>
-				</ul>
 			</div>
 			<?php
 		}
