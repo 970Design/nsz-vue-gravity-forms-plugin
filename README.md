@@ -9,6 +9,7 @@ This is a WordPress plugin that provides secure proxy endpoints for headless Gra
 - CORS support with configurable allowed origins
 - Full support for all standard Gravity Forms field types
 - Multi-file upload support
+- reCAPTCHA v3 server-side verification
 - SVG file upload capability
 - Multipage/multi-step forms support
 - Form validation with field-specific error messages
@@ -56,6 +57,14 @@ Body: multipart/form-data with form field values
 
 Processes form submission, handles file uploads, validates data, and sends notifications.
 
+### Get reCAPTCHA Config
+```bash
+GET /wp-json/gf-headless/v1/recaptcha/config
+Headers: `X-API-Key: your-api-key`
+```
+
+Returns the reCAPTCHA v3 enabled state and site key. The companion Vue package fetches this automatically — no manual configuration required on the frontend.
+
 ## Configuration
 
 ### API Key
@@ -85,7 +94,7 @@ Yes, all endpoints require API key authentication via the `X-API-Key` header. Ad
 While the included components are built for Vue.js, you can easily adapt them for React, Svelte, or any other JavaScript framework by following the same API patterns.
 
 **How do I handle reCAPTCHA?**
-Pass your reCAPTCHA v3 site key to the `recaptcha-key` prop in the GravityForm component. The plugin will automatically verify submissions.
+Navigate to **Settings > GF Headless API**, enter your reCAPTCHA v3 site and secret keys from [Google reCAPTCHA Admin](https://www.google.com/recaptcha/admin), and enable verification. 
 
 **What happens to form notifications?**
 All Gravity Forms notifications configured in the WordPress admin will be sent automatically upon successful form submission.

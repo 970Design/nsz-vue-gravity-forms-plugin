@@ -20,6 +20,7 @@ Secure proxy endpoints for headless Gravity Forms integration with Vue.js.
 * RESTful endpoints for form schema retrieval and submission
 * CORS support with configurable allowed origins
 * Full support for all standard Gravity Forms field types
+* reCAPTCHA v3 server-side verification
 * Multi-file upload support
 * SVG file upload capability
 * Multi-page/multi-step forms support
@@ -62,7 +63,7 @@ Secure proxy endpoints for headless Gravity Forms integration with Vue.js.
      endpoint="https://your-wordpress-site.com"
      :form-id="1"
      api-key="your-api-key-here"
-     recaptcha-key="your-recaptcha-key-optional"
+     {/* reCAPTCHA is configured in the WordPress plugin settings and fetched automatically */}
    />
    ```
 
@@ -86,6 +87,14 @@ Headers: `X-API-Key: your-api-key`
 Body: multipart/form-data with form field values
 
 Processes form submission, handles file uploads, validates data, and sends notifications.
+
+**Get reCAPTCHA Config**
+```
+GET /wp-json/gf-headless/v1/recaptcha/config
+```
+Headers: `X-API-Key: your-api-key`
+
+Returns the reCAPTCHA v3 enabled state and site key. The companion Vue package fetches this automatically — no manual frontend configuration required.
 
 == Configuration ==
 
@@ -118,7 +127,7 @@ Yes, all endpoints require API key authentication via the `X-API-Key` header. Ad
 While the included components are built for Vue.js, you can easily adapt them for React, Svelte, or any other JavaScript framework by following the same API patterns.
 
 = How do I handle reCAPTCHA? =
-Pass your reCAPTCHA v3 site key to the `recaptcha-key` prop in the GravityForm component. The plugin will automatically verify submissions.
+Navigate to **Settings > GF Headless API**, enter your reCAPTCHA v3 site and secret keys from the Google reCAPTCHA Admin console, and enable verification. The companion Vue package fetches the configuration automatically and handles token generation — no frontend configuration required.
 
 = What happens to form notifications? =
 All Gravity Forms notifications configured in the WordPress admin will be sent automatically upon successful form submission.
