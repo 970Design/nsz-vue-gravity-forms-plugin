@@ -2,7 +2,7 @@
 /**
  *  Plugin Name: 970 Design Vue Gravity Forms
  *  Description: Secure proxy endpoints for headless Gravity Forms integration.
- *  Version:     1.2.2
+ *  Version:     1.3.0
  *  Author:      970 Design
  *  Author URI:  https://970design.com/
  *  License:     GPLv2 or later
@@ -47,8 +47,23 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 
 			// Set default allowed origins (if not present)
 			if ( get_option( 'gf_headless_allowed_origins' ) === false ) {
-				// store as newline separated string
 				update_option( 'gf_headless_allowed_origins', "http://localhost:4321\nhttp://localhost" );
+			}
+
+			if ( get_option( 'gf_headless_recaptcha_enabled' ) === false ) {
+				update_option( 'gf_headless_recaptcha_enabled', '0' );
+			}
+
+			if ( get_option( 'gf_headless_recaptcha_site_key' ) === false ) {
+				update_option( 'gf_headless_recaptcha_site_key', '' );
+			}
+
+			if ( get_option( 'gf_headless_recaptcha_secret_key' ) === false ) {
+				update_option( 'gf_headless_recaptcha_secret_key', '' );
+			}
+
+			if ( get_option( 'gf_headless_recaptcha_threshold' ) === false ) {
+				update_option( 'gf_headless_recaptcha_threshold', '0.5' );
 			}
 		}
 
@@ -91,6 +106,17 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 					],
 				]
 			);
+
+			// Get reCAPTCHA configuration (requires API key)
+			register_rest_route(
+				$this->api_namespace,
+				'/recaptcha/config',
+				[
+					'methods'             => 'GET',
+					'callback'            => [ $this, 'get_recaptcha_config' ],
+					'permission_callback' => [ $this, 'check_api_permission' ],
+				]
+			);
 		}
 
 		/**
@@ -119,11 +145,91 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 			$api_key    = $request->get_header( 'X-API-Key' ) ?: $request->get_param( 'api_key' );
 			$stored_key = get_option( 'gf_headless_api_key', '' );
 
-			// sanitize
 			$api_key = is_string( $api_key ) ? trim( $api_key ) : '';
 
 			if ( ! $api_key || ! hash_equals( (string) $stored_key, (string) $api_key ) ) {
 				return new WP_Error( 'unauthorized', 'Invalid API key', [ 'status' => 401 ] );
+			}
+
+			return true;
+		}
+
+		/**
+		 * Get reCAPTCHA configuration
+		 *
+		 * @param WP_REST_Request $request
+		 * @return WP_REST_Response
+		 */
+		public function get_recaptcha_config( $request ) {
+			$enabled  = get_option( 'gf_headless_recaptcha_enabled', '0' ) === '1';
+			$site_key = get_option( 'gf_headless_recaptcha_site_key', '' );
+
+			return rest_ensure_response( [
+				'enabled'  => $enabled,
+				'site_key' => $enabled ? $site_key : '',
+			] );
+		}
+
+		/**
+		 * Get reCAPTCHA v3 score threshold from settings.
+		 * Falls back to 0.5 if the stored value is missing or out of the valid 0.0–1.0 range.
+		 *
+		 * @return float
+		 */
+		private function get_recaptcha_threshold() {
+			$threshold = (float) get_option( 'gf_headless_recaptcha_threshold', 0.5 );
+			return ( $threshold >= 0.0 && $threshold <= 1.0 ) ? $threshold : 0.5;
+		}
+
+		/**
+		 * Verify reCAPTCHA v3 token against Google's siteverify API.
+		 * Returns WP_Error if verification fails or score is below threshold.
+		 *
+		 * @param string $token
+		 * @return true|WP_Error
+		 */
+		private function verify_recaptcha( $token ) {
+			$secret_key = get_option( 'gf_headless_recaptcha_secret_key', '' );
+
+			if ( empty( $secret_key ) ) {
+				return new WP_Error( 'recaptcha_misconfigured', 'reCAPTCHA secret key is not configured.', [ 'status' => 500 ] );
+			}
+
+			$response = wp_remote_post(
+				'https://www.google.com/recaptcha/api/siteverify',
+				[
+					'timeout' => 10,
+					'body'    => [
+						'secret'   => $secret_key,
+						'response' => $token,
+						'remoteip' => $this->get_client_ip(),
+					],
+				]
+			);
+
+			if ( is_wp_error( $response ) ) {
+				return new WP_Error( 'recaptcha_request_failed', 'reCAPTCHA verification request failed.', [ 'status' => 500 ] );
+			}
+
+			$body = json_decode( wp_remote_retrieve_body( $response ), true );
+
+			if ( empty( $body ) || ! isset( $body['success'] ) ) {
+				return new WP_Error( 'recaptcha_invalid_response', 'Invalid reCAPTCHA response from Google.', [ 'status' => 500 ] );
+			}
+
+			if ( ! $body['success'] ) {
+				$error_codes = isset( $body['error-codes'] ) ? implode( ', ', $body['error-codes'] ) : 'unknown';
+				return new WP_Error( 'recaptcha_failed', 'reCAPTCHA verification failed: ' . $error_codes, [ 'status' => 400 ] );
+			}
+
+			$score = isset( $body['score'] ) ? (float) $body['score'] : 0.0;
+
+			if ( $score < $this->get_recaptcha_threshold() ) {
+				return new WP_Error(
+					'recaptcha_score_too_low',
+					'reCAPTCHA score too low. Possible bot activity detected.',
+					[ 'status' => 400, 'score' => $score ]
+				);
 			}
 
 			return true;
@@ -181,6 +287,23 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 
 				if ( ! class_exists( 'GFAPI' ) ) {
 					return new WP_Error( 'plugin_missing', 'Gravity Forms is not active', [ 'status' => 500 ] );
+				}
+
+				// reCAPTCHA verification - runs before any form processing
+				$recaptcha_enabled = get_option( 'gf_headless_recaptcha_enabled', '0' ) === '1';
+
+				if ( $recaptcha_enabled ) {
+					$recaptcha_token = $request->get_param( 'recaptcha_token' );
+
+					if ( empty( $recaptcha_token ) ) {
+						return new WP_Error( 'recaptcha_missing', 'reCAPTCHA token is required.', [ 'status' => 400 ] );
+					}
+
+					$recaptcha_result = $this->verify_recaptcha( $recaptcha_token );
+
+					if ( is_wp_error( $recaptcha_result ) ) {
+						return $recaptcha_result;
+					}
 				}
 
 				// Get form
@@ -754,17 +877,52 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 					return implode( "\n", $lines );
 				},
 			] );
+
+			register_setting( 'gf_headless_settings', 'gf_headless_recaptcha_enabled', [
+				'sanitize_callback' => function ( $val ) {
+					return $val === '1' ? '1' : '0';
+				},
+			] );
+
+			register_setting( 'gf_headless_settings', 'gf_headless_recaptcha_site_key', [
+				'sanitize_callback' => 'sanitize_text_field',
+			] );
+
+			register_setting( 'gf_headless_settings', 'gf_headless_recaptcha_secret_key', [
+				'sanitize_callback' => 'sanitize_text_field',
+			] );
+
+			register_setting( 'gf_headless_settings', 'gf_headless_recaptcha_threshold', [
+				'sanitize_callback' => function ( $val ) {
+					$val = (float) $val;
+					return ( $val >= 0.0 && $val <= 1.0 ) ? (string) $val : '0.5';
+				},
+			] );
 		}
 
 		/**
 		 * Admin page
 		 */
 		public function admin_page() {
-			$api_key     = get_option( 'gf_headless_api_key', '' );
-			$origins_raw = get_option( 'gf_headless_allowed_origins', "http://localhost:4321" );
+			$api_key            = get_option( 'gf_headless_api_key', '' );
+			$origins_raw        = get_option( 'gf_headless_allowed_origins', "http://localhost:4321" );
+			$recaptcha_enabled  = get_option( 'gf_headless_recaptcha_enabled', '0' );
+			$recaptcha_site_key = get_option( 'gf_headless_recaptcha_site_key', '' );
+			$recaptcha_secret_key = get_option( 'gf_headless_recaptcha_secret_key', '' );
 			?>
 			<div class="wrap">
 				<h1>Gravity Forms Headless API Settings</h1>
+
+				<?php if ( $recaptcha_enabled === '1' && ( empty( $recaptcha_site_key ) || empty( $recaptcha_secret_key ) ) ) : ?>
+					<div class="notice notice-warning">
+						<p><strong>Warning:</strong> reCAPTCHA is enabled but one or both keys are missing. Form submissions will be rejected until both keys are configured.</p>
+					</div>
+				<?php elseif ( $recaptcha_enabled === '1' ) : ?>
+					<div class="notice notice-success">
+						<p><strong>reCAPTCHA v3 is active.</strong> All form submissions require a valid token with a score of <?php echo esc_html( $this->get_recaptcha_threshold() ); ?> or higher.</p>
+					</div>
+				<?php endif; ?>
+
 				<form method="post" action="options.php">
 					<?php settings_fields( 'gf_headless_settings' ); ?>
 					<table class="form-table">
@@ -778,19 +936,63 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 						<tr>
 							<th scope="row">Allowed Origins</th>
 							<td>
-								<textarea name="gf_headless_allowed_origins" class="large-text" rows="4"><?php
-									echo esc_textarea( $origins_raw );
-									?></textarea>
+								<textarea name="gf_headless_allowed_origins" class="large-text" rows="4"><?php echo esc_textarea( $origins_raw ); ?></textarea>
 								<p class="description">One origin per line. Use * to allow all origins (not recommended for production). Example: http://localhost:4321</p>
 							</td>
 						</tr>
 					</table>
+
+					<h2>reCAPTCHA v3 Settings</h2>
+					<p class="description">Server-side verification is performed on every form submission. Both keys are required when enabled. Get your keys from <a href="https://www.google.com/recaptcha/admin" target="_blank">Google reCAPTCHA Admin</a>.</p>
+					<table class="form-table">
+						<tr>
+							<th scope="row">Enable reCAPTCHA v3</th>
+							<td>
+								<label>
+									<input type="checkbox" name="gf_headless_recaptcha_enabled" value="1" <?php checked( $recaptcha_enabled, '1' ); ?>>
+									Require reCAPTCHA v3 verification on all form submissions
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row">Site Key</th>
+							<td>
+								<input type="text" name="gf_headless_recaptcha_site_key" value="<?php echo esc_attr( $recaptcha_site_key ); ?>" class="regular-text">
+								<p class="description">Your reCAPTCHA v3 site key (public — used by the frontend).</p>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row">Secret Key</th>
+							<td>
+								<input type="text" name="gf_headless_recaptcha_secret_key" value="<?php echo esc_attr( $recaptcha_secret_key ); ?>" class="regular-text">
+								<p class="description">Your reCAPTCHA v3 secret key (private — never expose this to the frontend).</p>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row">Score Threshold</th>
+							<td>
+								<input
+										type="number"
+										name="gf_headless_recaptcha_threshold"
+										value="<?php echo esc_attr( get_option( 'gf_headless_recaptcha_threshold', '0.5' ) ); ?>"
+										class="small-text"
+										min="0"
+										max="1"
+										step="0.1"
+								>
+								<p class="description">Minimum reCAPTCHA v3 score to accept. Default: 0.5.<br>
+									(0.0 = all traffic (including bots), 1.0 = humans only).</p>
+							</td>
+						</tr>
+					</table>
+
 					<?php submit_button(); ?>
 				</form>
 
 				<h2>API Endpoints</h2>
 				<p><strong>Get Form Schema:</strong> <code>GET /wp-json/gf-headless/v1/forms/{form_id}</code></p>
 				<p><strong>Submit Form:</strong> <code>POST /wp-json/gf-headless/v1/forms/{form_id}/submit</code></p>
+				<p><strong>Get reCAPTCHA Config:</strong> <code>GET /wp-json/gf-headless/v1/recaptcha/config</code></p>
 				<p><strong>Note:</strong> All endpoints require a valid API key via the <code>X-API-Key</code> header or <code>api_key</code> parameter.</p>
 			</div>
 			<?php
