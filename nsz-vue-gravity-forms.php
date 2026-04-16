@@ -2,7 +2,7 @@
 /**
  *  Plugin Name: 970 Design Vue Gravity Forms
  *  Description: Secure proxy endpoints for headless Gravity Forms integration.
- *  Version:     1.3.0
+ *  Version:     1.3.2
  *  Author:      970 Design
  *  Author URI:  https://970design.com/
  *  License:     GPLv2 or later
@@ -493,20 +493,29 @@ if ( ! class_exists( 'GF_Headless_API' ) ) {
 					$entry[ $field_id ] = $field_value;
 				}
 
-				// Validate the form using GFAPI::validate_form (returns array with is_valid and messages)
-				$validation_result = [];
-				if ( method_exists( 'GFAPI', 'validate_form' ) ) {
-					// GFAPI::validate_form expects $form and array of values
-					$validation_result = GFAPI::validate_form( $form, $entry_data );
-				} else {
-					// if validate_form is not available, we'll attempt no-op valid (best-effort)
-					$validation_result = [ 'is_valid' => true ];
+				// Custom form validation
+				$validation_messages = [];
+
+				foreach ( $form['fields'] as $field ) {
+					$field_id   = is_object( $field ) ? $field->id : $field['id'];
+					$field_type = is_object( $field ) ? $field->type : $field['type'];
+					$is_required = is_object( $field ) ? ( $field->isRequired ?? false ) : ( $field['isRequired'] ?? false );
+
+					if ( ! $is_required ) {
+						continue;
+					}
+
+					$value = $entry_data[ $field_id ] ?? null;
+					$empty = is_null( $value ) || $value === '' || $value === [] ;
+
+					if ( $empty ) {
+						$label = is_object( $field ) ? ( $field->label ?? '' ) : ( $field['label'] ?? '' );
+						$validation_messages[ $field_id ] = sprintf( '%s is required.', $label );
+					}
 				}
 
-				if ( isset( $validation_result['is_valid'] ) && ! $validation_result['is_valid'] ) {
-					// Provide validation messages if available
-					$messages = isset( $validation_result['validation_messages'] ) ? $validation_result['validation_messages'] : [];
-					return new WP_Error( 'validation_failed', 'Validation failed', [ 'status' => 400, 'validation_messages' => $messages ] );
+				if ( ! empty( $validation_messages ) ) {
+					return new WP_Error( 'validation_failed', 'Validation failed', [ 'status' => 400, 'validation_messages' => $validation_messages ] );
 				}
 
 				// Add entry to database
