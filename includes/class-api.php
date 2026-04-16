@@ -348,8 +348,8 @@ class GF_Headless_Api extends GF_Headless_Base {
 					$field_type = is_object( $field ) ? $field->type : ( isset( $field['type'] ) ? $field['type'] : '' );
 
 					// Handle different field types
-					if ( $field_type === 'checkbox' ) {
-						// Checkbox fields: look for input_X_Y pattern
+					if ( $field_type === 'checkbox' || $field_type === 'multi_choice' ) {
+						// Checkbox and multi_choice fields: look for input_X_Y pattern
 						$checkbox_values = [];
 						foreach ( $params as $param_key => $param_value ) {
 							if ( preg_match( "/^input_{$field_id}_(\d+)$/", $param_key ) && ! empty( $param_value ) ) {
@@ -395,15 +395,16 @@ class GF_Headless_Api extends GF_Headless_Base {
 							}
 						}
 					} elseif ( $field_type === 'consent' ) {
-						// Consent fields: handle the checkbox and text parts
-						$consent_key_1 = "input_{$field_id}.1";
-						$consent_key_2 = "input_{$field_id}.2";
+						// WP REST API converts dots to underscores in param keys,
+						// so input_11.1 arrives as input_11_1
+						$consent_key_1 = "input_{$field_id}_1";
+						$consent_key_2 = "input_{$field_id}_2";
 
 						if ( isset( $params[ $consent_key_1 ] ) ) {
-							$entry_data[ $field_id . '.1' ] = $params[ $consent_key_1 ];
+							$entry_data[ $field_id . '.1' ] = sanitize_text_field( $params[ $consent_key_1 ] );
 						}
 						if ( isset( $params[ $consent_key_2 ] ) ) {
-							$entry_data[ $field_id . '.2' ] = $params[ $consent_key_2 ];
+							$entry_data[ $field_id . '.2' ] = sanitize_text_field( $params[ $consent_key_2 ] );
 						}
 					} elseif ( $field_type === 'fileupload' ) {
 						// File upload fields - can be single or multiple
@@ -511,17 +512,31 @@ class GF_Headless_Api extends GF_Headless_Base {
 
 			foreach ( $form['fields'] as $field ) {
 				$field_id    = is_object( $field ) ? $field->id : $field['id'];
+				$field_type  = is_object( $field ) ? $field->type : $field['type'];
 				$is_required = is_object( $field ) ? ( $field->isRequired ?? false ) : ( $field['isRequired'] ?? false );
 
 				if ( ! $is_required ) {
 					continue;
 				}
 
-				$value = $entry_data[ $field_id ] ?? null;
-				$empty = is_null( $value ) || $value === '' || $value === [];
+				// name and address fields are stored with dot-notation sub-keys (e.g. 6.3, 6.6)
+				// $entry_data[$field_id] is never set for these types
+				if ( $field_type === 'name' || $field_type === 'address' || $field_type === 'consent' ) {
+					$has_value = false;
+					foreach ( $entry_data as $key => $val ) {
+						if ( strpos( (string) $key, $field_id . '.' ) === 0 && ! empty( $val ) ) {
+							$has_value = true;
+							break;
+						}
+					}
+					$empty = ! $has_value;
+				} else {
+					$value = $entry_data[ $field_id ] ?? null;
+					$empty = is_null( $value ) || $value === '' || $value === [];
+				}
 
 				if ( $empty ) {
-					$label                           = is_object( $field ) ? ( $field->label ?? '' ) : ( $field['label'] ?? '' );
+					$label                            = is_object( $field ) ? ( $field->label ?? '' ) : ( $field['label'] ?? '' );
 					$validation_messages[ $field_id ] = sprintf( '%s is required.', $label );
 				}
 			}
