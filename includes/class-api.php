@@ -349,21 +349,34 @@ class GF_Headless_Api extends GF_Headless_Base {
 
 					// Handle different field types
 					if ( $field_type === 'checkbox' || $field_type === 'multi_choice' ) {
-						// Checkbox and multi_choice fields: look for input_X_Y pattern
-						$checkbox_values = [];
-						foreach ( $params as $param_key => $param_value ) {
-							if ( preg_match( "/^input_{$field_id}_(\d+)$/", $param_key ) && ! empty( $param_value ) ) {
-								$checkbox_values[] = $param_value;
+						$input_type = is_object( $field )
+							? ( $field->inputType ?? 'radio' )
+							: ( $field['inputType'] ?? 'radio' );
+
+						if ( $input_type === 'checkbox' ) {
+							foreach ( $params as $param_key => $param_value ) {
+								if ( preg_match( "/^input_{$field_id}_(\d+)$/", $param_key, $matches )
+								     && $param_value !== ''
+								     && $param_value !== null
+								) {
+									$entry_data[ $field_id . '.' . $matches[1] ] = sanitize_text_field( $param_value );
+								}
+							}
+						} else {
+							// Radio-backed: accept flat key
+							$field_key = "input_{$field_id}";
+							if ( isset( $params[ $field_key ] ) && $params[ $field_key ] !== '' ) {
+								$entry_data[ $field_id ] = sanitize_text_field( $params[ $field_key ] );
 							}
 						}
-						if ( ! empty( $checkbox_values ) ) {
-							$entry_data[ $field_id ] = $checkbox_values;
-						}
 					} elseif ( $field_type === 'multiselect' ) {
-						// Multi-select fields: look for input_X[] pattern
 						$field_key = "input_{$field_id}";
-						if ( isset( $params[ $field_key ] ) && is_array( $params[ $field_key ] ) ) {
-							$entry_data[ $field_id ] = $params[ $field_key ];
+						if ( isset( $params[ $field_key ] ) ) {
+							$raw    = is_array( $params[ $field_key ] ) ? $params[ $field_key ] : [ $params[ $field_key ] ];
+							$values = array_values( array_filter( array_map( 'sanitize_text_field', $raw ) ) );
+							if ( ! empty( $values ) ) {
+								$entry_data[ $field_id ] = implode( ',', $values );
+							}
 						}
 					} elseif ( $field_type === 'address' ) {
 						// Address fields: look for input_X_Y pattern where Y is the address component
@@ -428,6 +441,26 @@ class GF_Headless_Api extends GF_Headless_Base {
 							// Single file upload
 							if ( isset( $uploaded_files[ $field_key ] ) ) {
 								$files[ $field_id ] = $uploaded_files[ $field_key ];
+							}
+						}
+					} else if ( $field_type === 'image_choice' ) {
+						$input_type = is_object( $field )
+							? ( $field->inputType ?? 'radio' )
+							: ( $field['inputType'] ?? 'radio' );
+
+						if ( $input_type === 'checkbox' ) {
+							foreach ( $params as $param_key => $param_value ) {
+								if ( preg_match( "/^input_{$field_id}_(\d+)$/", $param_key, $matches )
+								     && $param_value !== ''
+								     && $param_value !== null
+								) {
+									$entry_data[ $field_id . '.' . $matches[1] ] = sanitize_text_field( $param_value );
+								}
+							}
+						} else {
+							$field_key = "input_{$field_id}";
+							if ( isset( $params[ $field_key ] ) && $params[ $field_key ] !== '' ) {
+								$entry_data[ $field_id ] = sanitize_text_field( $params[ $field_key ] );
 							}
 						}
 					} else {
@@ -519,9 +552,17 @@ class GF_Headless_Api extends GF_Headless_Base {
 					continue;
 				}
 
-				// name and address fields are stored with dot-notation sub-keys (e.g. 6.3, 6.6)
-				// $entry_data[$field_id] is never set for these types
-				if ( $field_type === 'name' || $field_type === 'address' || $field_type === 'consent' ) {
+				$input_type = is_object( $field )
+					? ( $field->inputType ?? '' )
+					: ( $field['inputType'] ?? '' );
+
+				$needs_dot_check = in_array( $field_type, [ 'name', 'address', 'consent', 'checkbox' ], true );
+
+				if ( in_array( $field_type, [ 'multi_choice', 'image_choice' ], true ) ) {
+					$needs_dot_check = ( $input_type === 'checkbox' );
+				}
+
+				if ( $needs_dot_check ) {
 					$has_value = false;
 					foreach ( $entry_data as $key => $val ) {
 						if ( strpos( (string) $key, $field_id . '.' ) === 0 && ! empty( $val ) ) {
