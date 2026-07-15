@@ -333,6 +333,7 @@ class GF_Headless_Api extends GF_Headless_Base {
 			// Build entry data array from request params
 			$entry_data     = [];
 			$files          = [];
+			$file_fields    = [];
 			$params         = $request->get_params();
 			$uploaded_files = $request->get_file_params();
 
@@ -421,7 +422,8 @@ class GF_Headless_Api extends GF_Headless_Base {
 						}
 					} elseif ( $field_type === 'fileupload' ) {
 						// File upload fields - can be single or multiple
-						$field_key = "input_{$field_id}";
+						$field_key                = "input_{$field_id}";
+						$file_fields[ $field_id ] = $field;
 
 						// Check if this is a multi-file upload field
 						$is_multi = is_object( $field ) ?
@@ -515,8 +517,23 @@ class GF_Headless_Api extends GF_Headless_Base {
 						// Single file upload
 						$upload_result = $this->handle_file_upload( $file_data, $form_id, $field_id );
 						if ( ! is_wp_error( $upload_result ) ) {
-							// For single file, store the relative path
-							$entry_data[ $field_id ] = $upload_result['file'];
+							// GF stores file values as full URLs under the GF upload root;
+							// fields created in GF 2.10+ (storageType "json") store even
+							// single files as a JSON array of URLs.
+							$file_field   = $file_fields[ $field_id ] ?? null;
+							$storage_type = '';
+
+							if ( is_object( $file_field ) ) {
+								$storage_type = $file_field->storageType ?? '';
+							} elseif ( is_array( $file_field ) ) {
+								$storage_type = $file_field['storageType'] ?? '';
+							}
+
+							if ( $storage_type === 'json' ) {
+								$entry_data[ $field_id ] = wp_json_encode( [ $upload_result['url'] ] );
+							} else {
+								$entry_data[ $field_id ] = $upload_result['url'];
+							}
 						} else {
 							return $upload_result;
 						}
@@ -593,9 +610,24 @@ class GF_Headless_Api extends GF_Headless_Base {
 				return new WP_Error( 'submission_failed', 'Failed to save entry', [ 'status' => 500 ] );
 			}
 
+			// Reload the saved entry so notifications and confirmations see the
+			// canonical values, including the entry ID (required for background
+			// notification processing and file attachments).
+			$saved_entry = GFAPI::get_entry( $entry_id );
+
+			if ( ! is_wp_error( $saved_entry ) ) {
+				$entry = $saved_entry;
+			} else {
+				$entry['id'] = $entry_id;
+			}
+
 			// Send notifications with proper error handling
 			try {
-				if ( isset( $form['notifications'] ) && ! empty( $form['notifications'] ) && class_exists( 'GFCommon' ) ) {
+				if ( method_exists( 'GFAPI', 'send_notifications' ) ) {
+					// Uses GF's notification pipeline, which honors the disable
+					// filters and the Background Notifications setting (GF 2.10+).
+					GFAPI::send_notifications( $form, $entry );
+				} elseif ( isset( $form['notifications'] ) && ! empty( $form['notifications'] ) && class_exists( 'GFCommon' ) ) {
 					$notifications_to_send = GFCommon::get_notifications_to_send( 'form_submission', $form, $entry );
 
 					if ( ! empty( $notifications_to_send ) ) {
