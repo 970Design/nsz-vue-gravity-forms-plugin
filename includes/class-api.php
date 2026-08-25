@@ -560,6 +560,50 @@ class GF_Headless_Api extends GF_Headless_Base {
 			// Validate required fields
 			$validation_messages = [];
 
+			// Validate + normalize phone fields via GF's own field pipeline.
+			// GFAPI::add_entry bypasses GF's submission processing, so without
+			// this, invalid values are stored verbatim — a real problem for GF
+			// 3.0 "formatted" phones, whose entry value is a JSON object
+			// ({country, national, formatted, e164}) that GF core validates
+			// (structure + E.164) and sanitizes before saving.
+			foreach ( $form['fields'] as $field ) {
+				$field_type = is_object( $field ) ? $field->type : ( $field['type'] ?? '' );
+
+				if ( $field_type !== 'phone' || ! is_object( $field ) ) {
+					continue;
+				}
+
+				$field_id = $field->id;
+				$value    = $entry_data[ $field_id ] ?? '';
+
+				if ( $value === '' || $value === null ) {
+					continue;
+				}
+
+				$field->failed_validation  = false;
+				$field->validation_message = '';
+				$field->validate( $value, $form );
+
+				if ( $field->failed_validation ) {
+					$validation_messages[ $field_id ] = $field->validation_message ?: 'Please enter a valid phone number.';
+					continue;
+				}
+
+				// Same normalization a native submission gets (formats standard
+				// numbers, strips unexpected keys from formatted-phone JSON).
+				// GF 3.0 renamed get_value_save_entry to get_value_save_input.
+				if ( method_exists( $field, 'get_value_save_input' ) ) {
+					$normalized = $field->get_value_save_input( $value, $form, "input_{$field_id}", null, [] );
+				} elseif ( method_exists( $field, 'get_value_save_entry' ) ) {
+					$normalized = $field->get_value_save_entry( $value, $form, "input_{$field_id}", null, [] );
+				} else {
+					$normalized = $value;
+				}
+
+				$entry_data[ $field_id ] = $normalized;
+				$entry[ $field_id ]      = $normalized;
+			}
+
 			foreach ( $form['fields'] as $field ) {
 				$field_id    = is_object( $field ) ? $field->id : $field['id'];
 				$field_type  = is_object( $field ) ? $field->type : $field['type'];
