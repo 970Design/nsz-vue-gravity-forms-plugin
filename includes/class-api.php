@@ -665,6 +665,22 @@ class GF_Headless_Api extends GF_Headless_Base {
 				$entry['id'] = $entry_id;
 			}
 
+			// GFAPI::add_entry() bypasses GFFormDisplay::process_form(), so the
+			// gform_entry_post_save filter never fires here. That filter is what
+			// GFFeedAddOn (Mailchimp, Zapier, HubSpot, etc.) hooks to run feeds
+			// after an entry is saved — without it, feed-based add-ons silently
+			// never process entries submitted through this endpoint. Mirrors
+			// form_display.php's own post-save handling, including the
+			// form-specific gform_entry_post_save_{form_id} variant.
+			$gform_entry_post_save_args = [ 'gform_entry_post_save', $form_id ];
+			if ( function_exists( 'gf_has_filter' ) && gf_has_filter( $gform_entry_post_save_args ) ) {
+				$entry = gf_apply_filters( $gform_entry_post_save_args, $entry, $form );
+			}
+
+			if ( function_exists( 'gf_feed_processor' ) ) {
+				gf_feed_processor()->save()->dispatch_on_shutdown();
+			}
+
 			// Send notifications with proper error handling
 			try {
 				if ( method_exists( 'GFAPI', 'send_notifications' ) ) {
